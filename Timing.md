@@ -1,0 +1,9 @@
+- crystals and clock generation
+- inteval times
+- PWM timers
+- watchdog timers
+- special timers
+- cycle counters
+- systick
+- software
+- rtc

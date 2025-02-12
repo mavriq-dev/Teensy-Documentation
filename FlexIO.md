@@ -301,6 +301,27 @@ The Teensy 4.1 features multiple FlexIO modules, each providing a set of highly 
 ## Shifters
 Shifters form the core data handling components of FlexIO, each providing a versatile 32-bit register that can be configured for various serial and parallel protocols. They handle data movement in both directions, can operate multiple bits in parallel across different pins, and support simultaneous operation of multiple shifters. Through timer and pin configurations, they can be precisely controlled to implement both standard and custom communication protocols.
 
+### Parallel Support
+FlexIO supports both serial and parallel data transfer modes. In parallel mode, multiple data bits can be transmitted or received simultaneously using multiple pins. Key features include:
+
+- Parallel Width: Configure from 1 to 32 bits per transfer
+- Dedicated Shifters: 
+  - SHIFTER0, SHIFTER4: Support parallel transmit
+  - SHIFTER3, SHIFTER7: Support parallel receive
+- Pin Selection: Uses consecutive pins starting from PINSEL
+  - Example: If PINSEL=2 and width=8, uses pins 2-9
+  - Formula: FXIO_D[PINSEL+PWIDTH-1]:FXIO_D[PINSEL]
+
+Parallel transfers are configured using the PWIDTH field in SHIFTCFG:
+- PWIDTH=0: 1-bit shift (serial mode)
+- PWIDTH=1-3: 4-bit parallel
+- PWIDTH=4-7: 8-bit parallel
+- PWIDTH=8-15: 16-bit parallel
+
+Note: Non-parallel shifters can only use parallel mode when INSRC=1 (taking input from another shifter).
+
+The important thing to note is that even though only certain shifters support parallel transfer to/from the pins, ALL of them support parallel transfer from/to neighboring shifter
+
 ### Pins
 - Output: Direct digital output mode for clean, fast signals with configurable drive strength
 - Open-drain: Pulls pin low when active, floating when inactive. Essential for shared buses like I2C where multiple devices drive the same line
@@ -327,13 +348,13 @@ Shifter buffers are the data interface for FlexIO shifters - they're essentially
 
 Each shifter has several buffer registers that handle data in different ways:
 
-The standard buffer (SHIFTBUF) is your basic interface - data goes in and out normally
-The bit-swapped buffer (SHIFTBUFBIS) lets you reverse the bit order (useful when you need MSB first instead of LSB first)
-The byte-swapped buffer (SHIFTBUFBYS) swaps the order of bytes in your data
-The bit-byte-swapped buffer (SHIFTBUFBBS) does both bit and byte swapping
+The standard buffer (SHIFTBUF) is your basic interface - data goes in and out normally.The bit-swapped buffer (SHIFTBUFBIS) lets you reverse the bit order (useful when you need MSB first instead of LSB first). 
+
+The byte-swapped buffer (SHIFTBUFBYS) swaps the order of bytes in your data The bit-byte-swapped buffer (SHIFTBUFBBS) does both bit and byte swapping
 When transmitting data, you write to these buffers and the shifter takes care of sending it out according to how it's configured. When receiving data, the shifter collects the incoming bits and places them in the buffer for you to read.
 
 The shifter has a status flag that tells you when it's ready for more data (buffer empty) or when new data has arrived (buffer full), which helps you manage the flow of data.
+### Parallel Support
 
 ### DMA Support
 FlexIO1 and FlexIO2 support DMA operations, while FlexIO3 does not have DMA capability. The DMA functionality is structured as follows:
@@ -514,7 +535,7 @@ Controls the basic operation of the shifter:
 Configures additional shifter parameters:
 | Field | Bits | Description |
 |-------|------|-------------|
-| **START** | [1:0] | Shifter Start bit:<br>• For SMOD = Transmit: Allows automatic start bit insertion if timer enabled<br>• For SMOD = Receive/Match Store: Allows automatic start bit checking if timer enabled<br>• For SMOD = State: Used to disable state outputs<br>• For SMOD = Logic: Used to mask logic pin inputs<br><br>Values:<br>0: Start bit disabled, loads data on enable<br>1: Start bit disabled, loads data on first shift<br>2: Outputs start bit 0, error if not 0<br>3: Outputs start bit 1, error if not 1 |
+| **START** | [1:0] | Shifter Start bit:<br>• For SMOD = Transmit: Allows automatic start bit insertion if timer enabled<br>• For SMOD = Receive/Match Store: Allows automatic start bit checking if timer enabled<br>• For SMOD = State: Used to disable state outputs<br>• For SMOD = Logic: Used to mask logic pin inputs<br><br>Values:<br>0: Start bit disabled, loads data on enable<br>1: Start bit disabled, loads data on first shift<br>2: Outputs start bit 0, error if not 0<br>3: Outputs start bit 1, error if not 1|
 | **Reserved** | [3:2] | Reserved |
 | **STOP** | [5:4] | Shifter Stop bit:<br>• For SMOD = Transmit: Allows automatic stop bit insertion if timer enabled<br>• For SMOD = Receive/Match Store: Allows automatic stop bit checking if timer enabled<br>• For SMOD = State: Used to disable state outputs<br>• For SMOD = Logic: Used to mask logic pin inputs<br><br>Values:<br>0: Stop bit disabled<br>1: Reserved<br>2: Outputs stop bit 0, error if not 0<br>3: Outputs stop bit 1, error if not 1 |
 | **Reserved** | [7:6] | Reserved |
@@ -567,7 +588,8 @@ Controls the basic operation of the timer:
 | **Reserved** | [21:18] | Reserved |
 | **TRGSRC** | [22] | Trigger Source:<br>0: External trigger<br>1: Internal trigger |
 | **TRGPOL** | [23] | Trigger Polarity:<br>0: Active high<br>1: Active low |
-| **TRGSEL** | [29:24] | Trigger Select:<br>Selects which trigger input the timer uses<br>When TRGSRC = 0 (External trigger):<br>N = External trigger N input<br>When TRGSRC = 1 (Internal trigger), value represents:<br>Pin trigger: 2×N (N = pin number 0-15)<br>Shifter trigger: (4×N)+1 (N = shifter number 0-7)<br>Timer trigger: (4×N)+3 (N = timer number 0-7)<br>Example values for internal triggers (TRGSRC = 1):<br>0: Pin 0 input<br>1: Shifter 0 status flag<br>2: Pin 1 input<br>3: Timer 0 trigger<br>4: Pin 2 input<br>5: Shifter 1 status flag<br>(Pattern continues up to Pin 15, Shifter 7, Timer 7) |
+| **TRGSEL** | [29:24] | Trigger Select:<br>The TRGSEL field has two modes based on TRGSRC:<br><div style="padding-left: 2em; text-indent: -2em;">**TRGSRC = 0** (External Trigger Mode) - In external trigger mode, TRGSEL directly selects an external trigger input. If N is the value in TRGSEL, it selects External Trigger N</div><div style="padding-left: 2em; text-indent: -2em;">**TRGSRC = 1** (Internal Trigger Mode)<br>In internal trigger mode There are three types of triggers you can select: <br>**A. Pin Trigger**<br>&emsp;&bull; Formula: 2&#42;N (even numbers)<br>&emsp;&bull; N ranges 0 to 15 (for pins 0-15)<br>&emsp;&bull; Examples:<br>&emsp;&emsp;&emsp;2&#42;0 = 0 selects Pin 0<br>&emsp;&emsp;&emsp;2&#42;1 = 2 selects Pin 1<br>&emsp;&emsp;&emsp;2&#42;2 = 4 selects Pin 2 ...up to Pin 15<br>**B. Shifter Status Flags**<br>&emsp;&bull; Formula: 4&#42;N + 1<br>&emsp;&bull; N ranges 0 to 7 (for shifters 0-7)<br>&emsp;&bull; Examples:<br>&emsp;&emsp;&emsp;4&#42;0 + 1 = 1 selects Shifter 0 Flag<br>&emsp;&emsp;&emsp;4&#42;1 + 1 = 5 selects Shifter 1 Flag<br>&emsp;&emsp;&emsp;4&#42;2 + 1 = 9 selects Shifter 2 Flag ...up to Shifter 7 <br>**C. Timer Triggers**<br>&emsp;&bull; Formula: 4&#42;N + 3<br>&emsp;&bull; N ranges 0 to 7 (for timers 0-7)<br>&emsp;&bull; Examples:<br>&emsp;&emsp;&emsp;4&#42;0 + 3 = 3 selects Timer 0 Trigger<br>&emsp;&emsp;&emsp;4&#42;1 + 3 = 7 selects Timer 1 Trigger<br>&emsp;&emsp;&emsp;4&#42;2 + 3 = 11 selects Timer 2 Trigger<br>&emsp;&emsp;&emsp;...up to Timer 7 |
+
 | **Reserved** | [31:30] | Reserved |
 
 ### Timer Configuration Register (TIMCFG)
@@ -594,7 +616,9 @@ Controls the detailed timing behavior:
 ### TIMCMP (Timer Compare Register)
 |Field | Bits | Description |
 |-------|------|-------------|
-|**TIMCMP** | [15:0] | Timer Compare Value:<br>The timer compare value is loaded into the timer counter when the timer is first enabled, when the timer is reset and when the timer decrements down to zero.<br><br>In 8-bit baud counter mode, the lower 8-bits configure the baud rate divider equal to (CMP[7:0] + 1) * 2.The upper 8-bits configure the number of bits in each word equal to (CMP[15:8] + 1) / 2.<br><br>In 8-bit PWM high mode, the lower 8-bits configure the high period of the output to (CMP[7:0] + 1) and the upper 8-bits configure the low period of the output to (CMP[15:8] + 1).<br><br>In 16-bit counter mode, the compare value can be used to generate the baud rate divider (if shift clock source is timer output) to equal (CMP[15:0] + 1) * 2. When the shift clock source is a pin or trigger input, the compare register is used to set the number of bits in each word equal to (CMP[15:0] + 1) / 2. |
+|**TIMCMP** | [15:0] | Timer Compare Value:<br>The TIMCMP register works like this:<br><br>For SingleCounter mode:<br><br><ul><li>Bits 15:8 (upper byte): Compare value - when the counter equals this, the timer output toggles</li><li>Bits 7:0 (lower byte): Reload value - loaded into counter when it decrements to 0</li></ul>So if you set TIMCMP = 0x1F0F:<ul><li>0x1F in upper byte: Timer output toggles when counter reaches 31</li><li>0x0F in lower byte: Counter reloads with 15 when it hits 0</li></ul>The timer will count: 15,14,13...0 then reload to 15 again. When it hits the compare value (31), it toggles the output.<br>This lets you control both the period (through the reload value) and the duty cycle (through the compare value) of the timer output.<br><br>For DualCounter mode (TimerMode::DualCounter), TIMCMP is split into two 8-bit counters:<ul><li>Bits 15:8: Baud counter</li><li>Bits 7:0: Bit counter</li></ul>For example, TIMCMP = 0x0F07:<br><ul><li>0x0F: Baud counter decrements to control bit rate</li><li>0x07: Bit counter decrements to count number of bits in each transfer</li></ul>The baud counter reloads when it hits 0, and the bit counter decrements each time the baud counter reloads. This is useful for serial protocols where you need to:<ol><li>Control the bit rate (baud counter)</li><li>Keep track of how many bits have been sent/received (bit counter)</li></ol><br>For PWM mode (TimerMode::DualPWM), TIMCMP is also split into two 8-bit values but used differently:<br><br><ul><li>Period = 32 counts (0x20)</li><li>High time = 16 counts (0x10)</li></ul><br>Or for a 25% duty cycle: TIMCMP = 0x1040<br><br><ul><li>Period = 64 counts (0x40)</li><li>High time = 16 counts (0x10)</li></ul>The high time value in the upper byte must never exceed the period value in the lower byte.
+
+|
 |**Reserved** | [31:16] | Reserved |
 
 
